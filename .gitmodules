@@ -1,0 +1,3 @@
+[submodule "Mario-AI-Framework"]
+	path = Mario-AI-Framework
+	url = git@github.com:mendesLet/Mario-AI-Framework.git
