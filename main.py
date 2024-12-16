@@ -1,22 +1,97 @@
+import pandas as pd
 import subprocess
+import ast
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 ROOT_PATH = os.getcwd()
 
-# Example: Generate a simple map and save it to a .txt file
+TOKEN_MAPPING = {
+    "-": "-",  # Sky
+    "o": "o",  # Coin
+    "X": "X",  # Ground
+    "#": "#",  # Hard Block
+    "S": "S",  # Brick
+    "C": "C",  # Coin Brick Block
+    "U": "U",  # Mushroom Brick Block
+    "?": "?",  # Special Question Block
+    "!": "Q",  # Coin Question Block
+    "1": "1",  # Invisible 1 up block
+    "2": "2",  # Invisible coin block
+    "g": "g",  # Goomba
+    "G": "G",  # Winged Goomba
+    "k": "k",  # Green Koopa
+    "K": "K",  # Winged Green Koopa
+    "r": "r",  # Red Koopa
+    "R": "R",  # Winged Red Koopa
+    "y": "y",  # Spiky
+    "B": "B",  # Bullet Billington head
+    "b": "b",  # Bullet Billington body
+    "<": "<",  # Top left pipe
+    ">": ">",  # Top right pipe
+    "(": "T",  # Top left pipe with plant
+    ")": "T",  # Top right pipe with plant
+    "[": "[",  # Left pipe
+    "]": "]",  # Right pipe
+    "x": "S",  # Path
+    "Y": "Y",  # Black Square
+    "N": "-"   # N (mapped to Sky for Mario AI compatibility)
+}
+
+def convert_map_tokens(level_data):
+    logging.info("Converting map tokens.")
+    return [
+        "".join(TOKEN_MAPPING.get(char, char) for char in line)
+        for line in level_data
+    ]
+
+
+def find_mario_start(map_data):
+    """
+    Finds the first valid position for Mario (M) in the map.
+    Starts from the bottom of the first column and moves up.
+    If the first column is all blocks, moves to the next column.
+    """
+    rows = len(map_data)
+    cols = len(map_data[0]) if rows > 0 else 0
+
+    for col in range(cols):  # Iterate through columns
+        for row in range(rows - 1, -1, -1):  # Start from the bottom row
+            if map_data[row][col] == "-":  # Sky is a valid spot for Mario
+                return row, col
+    return None  # No valid spot found
+
+
 def generate_map(map_data, file_name):
-    
+    logging.info(f"Generating map file: {file_name}")
     map_dir = os.path.join(ROOT_PATH, "Mario-AI-Framework", "levels", "test")
     os.makedirs(map_dir, exist_ok=True)
     map_path = os.path.join(map_dir, file_name)
+
+    # Process the map data
+    map_data = ast.literal_eval(map_data)
     
-    map_data = map_data.replace("P", 't')
-    map_data = map_data.replace("x", 'S')
-    
+    # Find a valid start position for Mario
+    mario_start = find_mario_start(map_data)
+    if mario_start:
+        row, col = mario_start
+        map_data[row] = map_data[row][:col] + "M" + map_data[row][col + 1:]
+        logging.info(f"Mario placed at ({row}, {col}).")
+    else:
+        logging.warning("No valid position found to place Mario.")
+
+    map_data = convert_map_tokens(map_data)
+
+    # Write the map data to the file
     with open(map_path, 'w') as file:
-        file.write(map_data)
+        file.write("\n".join(map_data) + '\n')
+        logging.info(f"Map successfully written to {map_path}.")
 
     return map_path
+
 
 
 def run_mario_ai(map_path):
@@ -32,7 +107,7 @@ def run_mario_ai(map_path):
     try:
         # Ensure base_dir exists
         if not os.path.exists(base_dir):
-            print(f"Error: Base directory not found: {base_dir}")
+            logging.error(f"Base directory not found: {base_dir}")
             return None
 
         # Step 1: Compile the Java program
@@ -40,8 +115,8 @@ def run_mario_ai(map_path):
             "javac", "-cp", java_src_dir,
             os.path.join(java_src_dir, "PlayLevel.java")
         ]
-        print(f"Compile command: {' '.join(compile_command)}")
-        print("Compiling Java files...")
+        logging.info(f"Compile command: {' '.join(compile_command)}")
+        logging.info("Compiling Java files...")
 
         compile_result = subprocess.run(
             compile_command,
@@ -52,18 +127,18 @@ def run_mario_ai(map_path):
         )
 
         if compile_result.returncode != 0:
-            print("Compilation failed:")
-            print(compile_result.stderr)
+            logging.error("Compilation failed:")
+            logging.error(compile_result.stderr)
             return None
 
-        print("Compilation successful.")
+        logging.info("Compilation successful.")
 
         # Step 2: Run the Java program
         run_command = [
             "java", "-cp", java_src_dir, main_class, map_path
         ]
-        print(f"Run command: {' '.join(run_command)}")
-        print("Running the Java program...")
+        logging.info(f"Run command: {' '.join(run_command)}")
+        logging.info("Running the Java program...")
 
         result = subprocess.run(
             run_command,
@@ -74,100 +149,109 @@ def run_mario_ai(map_path):
         )
 
         # Step 3: Handle results
-        print("Java stdout:")
-        print(result.stdout)
-        print("Java stderr:")
-        print(result.stderr)
+        # logging.info("Java stdout:")
+        # logging.info(result.stdout)
+        # logging.info("Java stderr:")
+        # logging.info(result.stderr)
 
         if result.returncode != 0:
-            print("Java program execution failed.")
+            logging.error("Java program execution failed.")
             return None
 
         return result.stdout
 
     except FileNotFoundError as e:
-        print(f"Error: File not found during execution - {e}")
+        logging.error(f"File not found during execution: {e}")
         return None
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        logging.exception(f"Unexpected error: {e}")
         return None
 
-def parse_result(output):
-    """
-    Parse the Mario game result output and extract the Mario path as a list.
-
-    Args:
-        output (str): The raw output string from the Mario game.
-
-    Returns:
-        list: A list of tuples representing the Mario path.
-    """
+def parse_coordinates(output):
+    logging.info("Parsing result output from Mario AI.")
     mario_path = []
     path_start = False
 
     for line in output.splitlines():
-        # Check if the path section has started
         if line.strip() == "Mario Path:":
             path_start = True
             continue
         if path_start:
-            # If the line is empty, we've reached the end of the path section
             if not line.strip():
                 break
-            # Parse the path coordinates
             coordinates = line.strip("[]").split(", ")
             if len(coordinates) == 2:
                 x, y = map(int, coordinates)
                 mario_path.append((x, y))
-    
+                logging.debug(f"Added path coordinate: ({x}, {y}).")
+
     return mario_path
 
-def mario_pipeline():
-    # Step 1: Generate the map
-    map_data = """------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
---------------------------------ooooR---------------------ooo----------R------------------------------------------------------------------------------------------------------------------------------
-----------------------oo-------xxxx?x---------------------ooo-----------------------------------------------------------------------------------------------------------------------------------------
-----------------------------------------------------------xxx-----------------------------x?xxxxx------------------------------------------R--------------------------------------##------------------
-------------------??--PP--------------------------------R-------xxxxxx----xxx---##-----------------------------------------------------------------------------------------------###------------------
---------------oo------PP--------------------------------------------------------###----------?--------B###---------------------xxxx------------xxxx------xxxx-------------------####------------------
---------x?x-----------PP----PP---PP----PP------------R-------------xoook--------####------xxxxx?x-----B--------------------------------xxxx------------------------------------#####------------------
---------------PP------PP----PP-g-PP-k-gPP--Roo-S----xxx------------xxxxx--------#####----------------BB?-------PP------xxxx-------------------------------------PP--xx?x------######------------------
---------------PP--XX--PP--XXXXXXXPPXXXXPPXXXX####-------------------------------######---------------BB--------PP-----------------------------------------------PP-----------#######------------------
---------------PP--XX--PP--XXXXXXXPPXXXXPPXXXX####-----------xxxx-------R--------#######--------?-----BB----g-G-PP-----------------------------------------------PP--gg------########------------------
-XXXXXXXXXXXX--PP--XX--PP--XXXXXXXXXXXXXPPXXXX##-----------------------xxxx------XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-------------------------------------------XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXX--PP--XX--PP--XXXXXXXXXXXXXXXXXXX##---------------------------------XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-------------------------------------------XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"""
+def parse_result(output):
+    logging.info("Parsing result output from Mario AI.")
 
-    map_name = "map.txt"
-    map_path = generate_map(map_data, map_name)
-    print(map_path)
+    # Check for WIN or LOSE in the output
+    if "WIN" in output:
+        logging.info("Mario completed the level (WIN detected).")
+        return True
+    elif "LOSE" in output:
+        logging.info("Mario failed the level (LOSE detected).")
+        return False
+    else:
+        logging.warning("No WIN or LOSE detected in the output.")
+        return None
+
+def check_level_completion(level_data):
+    logging.info("Checking level completion.")
+    map_name = "map_temp.txt"
+    map_path = generate_map(level_data, map_name)
     
-    # Step 2: Run the Java program
-    output = run_mario_ai(map_path)
-    if output is None:
-        print("Error: Could not run the Java program.")
-        return
-    
-    # Step 3: Parse the result
-    coordinates = parse_result(output)
-    # Split the map into a list of lines
-    map_lines = map_data.splitlines()
+    MAX_ATTEMPTS = 1  # Maximum number of attempts
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        logging.info(f"Attempt {attempt} for level.")
+        output = run_mario_ai(map_path)
 
-    # Convert each line into a mutable list of characters
-    map_grid = [list(line) for line in map_lines]
+        if output is None:
+            logging.warning("Level failed to execute properly.")
+        else:
+            completion_status = parse_result(output)
 
-    # Place "m" at the specified (x, y) coordinates
-    for x, y in coordinates:
-        if 0 <= y < len(map_grid) and 0 <= x < len(map_grid[y]):  # Ensure coordinates are within bounds
-            map_grid[y][x] = "m"  # Use y for the row and x for the column
+            if completion_status:  # WIN detected
+                logging.info(f"Level completed successfully on attempt {attempt}.")
+                return True
+            elif completion_status is False:  # LOSE detected
+                logging.info(f"Level failed on attempt {attempt}.")
 
-    # Convert the modified grid back to a single string
-    modified_map = "\n".join("".join(line) for line in map_grid)
+        # Retry logic: If MAX_ATTEMPTS is reached, break out of the loop
+        if attempt == MAX_ATTEMPTS:
+            logging.warning(f"Level not completed after {MAX_ATTEMPTS} attempts.")
+            return False
 
-    print(modified_map)
-    return modified_map
+    return False
+
+def analyze_levels(csv_path):
+    logging.info(f"Analyzing levels from CSV: {csv_path}")
+    df = pd.read_csv(csv_path)
+
+    if 'level' not in df.columns:
+        logging.error("The CSV file must contain a 'level' column.")
+        raise ValueError("The CSV file must contain a 'level' column.")
+
+    completed_count = 0
+    total_count = len(df)
+
+    for index, row in df.iterrows():
+        level_data = row['level']
+        if check_level_completion(level_data):
+            completed_count += 1
+            logging.info(f"Level {index + 1}/{total_count} completed.")
+        else:
+            logging.info(f"Level {index + 1}/{total_count} not completed.")
+
+    completion_percentage = (completed_count / total_count) * 100 if total_count > 0 else 0
+    logging.info(f"{completed_count}/{total_count} levels completed ({completion_percentage:.2f}%).")
+    return completion_percentage
 
 if __name__ == "__main__":
-    mario_pipeline()
+    csv_file_path = "/home/lettuce/code/college/nlp/trabalho_final/tmp/mario-gpt/notebooks/generated_levels.csv"  # Replace with your CSV file path
+    analyze_levels(csv_file_path)
